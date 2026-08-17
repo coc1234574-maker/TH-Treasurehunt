@@ -1,0 +1,844 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Diamond Pattern Board — 254 x 1019</title>
+<style>
+  html, body {
+    margin: 0;
+    background: #1a1a2e;
+    font-family: sans-serif;
+    color: #eee;
+    overscroll-behavior: none;
+  }
+
+  .toolbar {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    background: #16213e;
+    z-index: 10;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.4);
+    font-size: 14px;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .toolbar-row {
+    padding: 10px 16px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+
+  .toolbar span { opacity: 0.8; }
+
+  #coords {
+    font-weight: bold;
+    opacity: 1;
+    background: #0f3460;
+    padding: 4px 10px;
+    border-radius: 4px;
+    min-width: 130px;
+  }
+
+  .zoom-controls {
+    display: flex;
+    gap: 6px;
+    margin-left: auto;
+  }
+
+  .zoom-controls button {
+    background: #0f3460;
+    color: #eee;
+    border: none;
+    border-radius: 4px;
+    width: 32px;
+    height: 32px;
+    font-size: 16px;
+    cursor: pointer;
+  }
+
+  .zoom-controls button:active {
+    background: #0a2647;
+  }
+
+  .action-panel {
+    display: none;
+    flex-direction: column;
+    gap: 8px;
+    padding: 10px 16px;
+    background: #0a2647;
+    font-size: 14px;
+    border-top: 1px solid #1f3a63;
+  }
+
+  .action-panel-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .action-panel button {
+    border: none;
+    border-radius: 4px;
+    padding: 6px 16px;
+    font-size: 14px;
+    cursor: pointer;
+  }
+
+  .dig-btn {
+    background: #ff8c1a;
+    color: #1a1a2e;
+    font-weight: bold;
+  }
+
+  .cancel-btn {
+    background: #3a3f5a;
+    color: #eee;
+  }
+
+  .tag-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .tag-btn {
+    border: 1px solid #3a3f5a;
+    background: transparent;
+    color: #eee;
+    border-radius: 14px;
+    padding: 4px 12px;
+    font-size: 12px;
+    cursor: pointer;
+  }
+
+  .tag-btn.active {
+    background: #b388ff;
+    border-color: #b388ff;
+    color: #1a1a2e;
+    font-weight: bold;
+  }
+
+  .tag-btn.tag-none.active {
+    background: #555;
+    border-color: #555;
+    color: #fff;
+  }
+
+  .tag-btn.tag-treasure.active,
+  .tag-btn.tag-scrap.active {
+    background: #4caf50;
+    border-color: #4caf50;
+    color: #fff;
+  }
+
+  .view-panel {
+    display: none;
+    padding: 10px 16px;
+    background: #0a2647;
+    font-size: 14px;
+    border-top: 1px solid #1f3a63;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+
+  .view-panel button {
+    border: none;
+    border-radius: 4px;
+    padding: 6px 16px;
+    font-size: 14px;
+    cursor: pointer;
+    background: #3a3f5a;
+    color: #eee;
+  }
+
+  .reset-btn {
+    background: #7a2020;
+    color: #eee;
+    border: none;
+    border-radius: 4px;
+    padding: 6px 12px;
+    font-size: 13px;
+    cursor: pointer;
+  }
+
+  .scroll-wrap {
+    overflow: auto;
+    width: 100vw;
+    touch-action: pan-x pan-y;
+  }
+
+  .board-padding {
+    display: inline-block;
+    padding: 60px;
+    box-sizing: content-box;
+  }
+
+  .zoom-sizer {
+    position: relative;
+  }
+
+  .content {
+    position: absolute;
+    top: 0;
+    left: 0;
+    transform-origin: 0 0;
+    border: 3px solid #4a5578;
+    box-sizing: content-box;
+  }
+
+  .content canvas {
+    position: absolute;
+    left: 0;
+    display: block;
+  }
+
+  .tile-overlay {
+    cursor: pointer;
+  }
+</style>
+</head>
+<body>
+
+<div class="toolbar">
+  <div class="toolbar-row">
+    <span>254 &times; 1019 board</span>
+    <span id="coords">Clicked: —</span>
+    <div class="zoom-controls">
+      <button id="zoomOut">−</button>
+      <button id="zoomReset">100%</button>
+      <button id="zoomIn">+</button>
+    </div>
+    <button id="resetBoard" class="reset-btn">Reset board</button>
+    <span id="syncStatus" style="font-size:12px; opacity:0.7;">Local only</span>
+  </div>
+  <div class="action-panel" id="actionPanel">
+    <div class="action-panel-row">
+      <span>Dig this area?</span>
+      <button id="digBtn" class="dig-btn">Dig</button>
+      <button id="cancelBtn" class="cancel-btn">Cancel</button>
+    </div>
+    <div class="tag-row" id="tagRow"></div>
+  </div>
+  <div class="view-panel" id="viewPanel">
+    <span id="viewPanelText">Already tagged.</span>
+    <button id="viewCloseBtn">Close</button>
+  </div>
+  <div class="view-panel" id="resetConfirmPanel">
+    <span>Reset the whole board? This clears every dig and tag.</span>
+    <button id="resetConfirmYes" class="reset-btn">Yes, reset</button>
+    <button id="resetConfirmNo">Cancel</button>
+  </div>
+</div>
+
+<div class="scroll-wrap" id="scrollWrap">
+  <div class="board-padding">
+    <div class="zoom-sizer" id="sizer">
+      <div class="content" id="content"></div>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+  // ==== FIREBASE SETUP ====
+  // 1. Paste the config object from your Firebase project settings below.
+  // 2. Set Firestore rules (console → Firestore Database → Rules) to:
+  //    allow read, write: if true;   (inside match /digs/{docId})
+  // Leave this untouched (with the placeholder apiKey) to run in local-only
+  // mode — the board still works, it just won't sync between devices.
+  const firebaseConfig = {
+    apiKey: "AIzaSyDG-GYrciE2zAk2b3n-T_Ygpk1RZVBoSq4",
+    authDomain: "th-treasurehunt.firebaseapp.com",
+    projectId: "th-treasurehunt",
+    storageBucket: "th-treasurehunt.firebasestorage.app",
+    messagingSenderId: "1070905957234",
+    appId: "1:1070905957234:web:72c0d355e6cb3d5e2d9beb",
+    measurementId: "G-D6RCTQ910K"
+  };
+
+  const USE_FIREBASE = firebaseConfig.apiKey !== 'YOUR_API_KEY';
+  const syncStatus = document.getElementById('syncStatus');
+
+  let db, digsCollectionRef, fsDoc, fsSetDoc, fsGetDocs, fsOnSnapshot, fsWriteBatch;
+
+  if (USE_FIREBASE) {
+    try {
+      const { initializeApp } = await import('https://www.gstatic.com/firebasejs/12.17.1/firebase-app.js');
+      const {
+        getFirestore, collection, doc, setDoc, getDocs, onSnapshot, writeBatch
+      } = await import('https://www.gstatic.com/firebasejs/12.17.1/firebase-firestore.js');
+
+      const app = initializeApp(firebaseConfig);
+      db = getFirestore(app);
+      digsCollectionRef = collection(db, 'digs');
+      fsDoc = doc; fsSetDoc = setDoc; fsGetDocs = getDocs;
+      fsOnSnapshot = onSnapshot; fsWriteBatch = writeBatch;
+      syncStatus.textContent = '🔥 Connecting…';
+    } catch (e) {
+      console.error('Firebase failed to load, falling back to local-only', e);
+      syncStatus.textContent = '📴 Local only (Firebase failed)';
+    }
+  }
+
+  // ---- Grid dimensions (diamonds across x down) ----
+  const COLS = 254;
+  const ROWS = 1019;
+
+  // Diamond half-width / half-height in pixels (per-tile canvas resolution)
+  const HW = 8;
+  const HH = 8;
+
+  // Coordinate offset: top-left diamond should read as (3,3); columns count by 2s
+  const COL_OFFSET = 3;
+  const ROW_OFFSET = 3;
+
+  const colors = ['#7ec8e3', '#f7a8c4']; // light blue, pink
+
+  const canvasWidth = COLS * (2 * HW) + HW;
+  const fullHeight = ROWS * HH + HH;
+
+  // Keep each tile's canvas height within a safe range for mobile browsers
+  const TILE_ROWS = 500;
+  const numTiles = Math.ceil(ROWS / TILE_ROWS);
+
+  const content = document.getElementById('content');
+  const sizer = document.getElementById('sizer');
+  const scrollWrap = document.getElementById('scrollWrap');
+  const coordsLabel = document.getElementById('coords');
+
+  content.style.width = canvasWidth + 'px';
+  content.style.height = fullHeight + 'px';
+
+  function shouldDraw(row, col) {
+    const isPink = (row % 2) === 1;
+    if (!isPink) return true;
+    return row < ROWS - 1 && col < COLS - 1;
+  }
+
+  // Global (tile-independent) pixel center of a diamond — used for accurate
+  // pixel-distance math when building the region-select diamond shape.
+  function centerOfGlobal(row, col) {
+    const rowShift = (row % 2 === 1) ? HW : 0;
+    const x = col * (2 * HW) + HW + rowShift;
+    const y = row * HH + HH;
+    return { x, y };
+  }
+
+  function isInsideDiamond(px, py, cx, cy) {
+    return Math.abs(px - cx) / HW + Math.abs(py - cy) / HH <= 1;
+  }
+
+  // ---- Diamond-shaped region highlight ----
+  // Clicking a diamond temporarily colors it and every diamond inside the
+  // larger diamond-shaped region around it (a true diamond in pixel space —
+  // e.g. clicking (137,195) covers corners (137,177), (137,213), (119,195),
+  // (155,195)). The player then confirms with Dig (permanent) or Cancel (revert).
+  const RADIUS = 18;                 // in displayed coordinate units
+  const RADIUS_PX = RADIUS * HH;     // equivalent radius in actual pixels
+  const highlightedTiles = new Set();
+  let pendingCells = [];   // { info, x, y } — cells currently previewed, not yet committed
+  let pendingCenter = null; // { row, col } of the diamond that was actually clicked
+
+  function clearHighlights() {
+    highlightedTiles.forEach((idx) => {
+      const info = tiles[idx];
+      info.octx.clearRect(0, 0, info.overlay.width, info.overlay.height);
+    });
+    highlightedTiles.clear();
+    pendingCells = [];
+    pendingCenter = null;
+  }
+
+  function drawDiamondShape(ctxTarget, x, y, fillColor) {
+    ctxTarget.beginPath();
+    ctxTarget.moveTo(x, y - HH);
+    ctxTarget.lineTo(x + HW, y);
+    ctxTarget.lineTo(x, y + HH);
+    ctxTarget.lineTo(x - HW, y);
+    ctxTarget.closePath();
+    ctxTarget.fillStyle = fillColor;
+    ctxTarget.fill();
+  }
+
+  // Small flag icon (pole + pennant), drawn centered on a diamond
+  function drawFlag(ctxTarget, x, y) {
+    ctxTarget.save();
+    ctxTarget.strokeStyle = '#ffffff';
+    ctxTarget.lineWidth = 1;
+    ctxTarget.beginPath();
+    ctxTarget.moveTo(x - 3, y + 5);
+    ctxTarget.lineTo(x - 3, y - 5);
+    ctxTarget.stroke();
+    ctxTarget.fillStyle = '#ff3b3b';
+    ctxTarget.beginPath();
+    ctxTarget.moveTo(x - 3, y - 5);
+    ctxTarget.lineTo(x + 4, y - 2.5);
+    ctxTarget.lineTo(x - 3, y);
+    ctxTarget.closePath();
+    ctxTarget.fill();
+    ctxTarget.restore();
+  }
+
+  // X icon (treasure)
+  function drawX(ctxTarget, x, y) {
+    ctxTarget.save();
+    ctxTarget.strokeStyle = '#ffffff';
+    ctxTarget.lineWidth = 1.5;
+    ctxTarget.beginPath();
+    ctxTarget.moveTo(x - 4, y - 4);
+    ctxTarget.lineTo(x + 4, y + 4);
+    ctxTarget.moveTo(x + 4, y - 4);
+    ctxTarget.lineTo(x - 4, y + 4);
+    ctxTarget.stroke();
+    ctxTarget.restore();
+  }
+
+  // O icon (scrap)
+  function drawO(ctxTarget, x, y) {
+    ctxTarget.save();
+    ctxTarget.strokeStyle = '#ffffff';
+    ctxTarget.lineWidth = 1.5;
+    ctxTarget.beginPath();
+    ctxTarget.arc(x, y, 4, 0, Math.PI * 2);
+    ctxTarget.stroke();
+    ctxTarget.restore();
+  }
+
+  const FILL_BLACK = '#111111';
+  const FILL_PURPLE = '#b388ff';
+  const FILL_GREEN = '#4caf50';
+
+  // Which visual category a set of tags maps to
+  function categoryOf(tags) {
+    if (!tags || tags.length === 0) return 'none';
+    if (tags.includes('treasure')) return 'treasure';
+    if (tags.includes('scrap')) return 'scrap';
+    return 'directional';
+  }
+
+  // Returns every drawable diamond within RADIUS_PX of (centerRow, centerCol),
+  // each resolved to its owning tile + local pixel position for direct drawing.
+  function getRegionCells(centerRow, centerCol) {
+    const { x: cx, y: cy } = centerOfGlobal(centerRow, centerCol);
+
+    const colIdxRadius = Math.ceil(RADIUS_PX / (2 * HW)) + 1;
+    const rowRadius = Math.ceil(RADIUS_PX / HH) + 1;
+
+    const colMin = Math.max(0, centerCol - colIdxRadius);
+    const colMax = Math.min(COLS - 1, centerCol + colIdxRadius);
+    const rowMin = Math.max(0, centerRow - rowRadius);
+    const rowMax = Math.min(ROWS - 1, centerRow + rowRadius);
+
+    const cells = [];
+    for (let row = rowMin; row <= rowMax; row++) {
+      const tIdx = Math.floor(row / TILE_ROWS);
+      const info = tiles[tIdx];
+      if (!info) continue;
+      const localRow = row - info.rowStart;
+
+      for (let col = colMin; col <= colMax; col++) {
+        if (!shouldDraw(row, col)) continue;
+        const { x, y } = centerOfGlobal(row, col);
+        if (Math.abs(x - cx) + Math.abs(y - cy) > RADIUS_PX) continue;
+        const localY = localRow * HH + HH;
+        cells.push({ info, x, y: localY });
+      }
+    }
+    return cells;
+  }
+
+  function highlightRegion(centerRow, centerCol) {
+    clearHighlights();
+    pendingCenter = { row: centerRow, col: centerCol };
+    pendingCells = getRegionCells(centerRow, centerCol);
+    pendingCells.forEach(({ info, x, y }) => {
+      drawDiamondShape(info.octx, x, y, FILL_PURPLE);
+      highlightedTiles.add(tiles.indexOf(info));
+    });
+    resetTagSelection();
+    showActionPanel(true);
+  }
+
+  // ---- Tags ----
+  const DIRECTIONAL_TAGS = ['top', 'bottom', 'left', 'right', 'very far', 'far', 'close', 'very close'];
+  const EXCLUSIVE_TAGS = ['none', 'treasure', 'scrap'];
+  const TAGS = [...DIRECTIONAL_TAGS, ...EXCLUSIVE_TAGS];
+  const selectedTags = new Set();
+  const tagRow = document.getElementById('tagRow');
+
+  TAGS.forEach((tag) => {
+    const btn = document.createElement('button');
+    btn.textContent = tag;
+    const extraClass = tag === 'none' ? ' tag-none' : tag === 'treasure' ? ' tag-treasure' : tag === 'scrap' ? ' tag-scrap' : '';
+    btn.className = 'tag-btn' + extraClass;
+    btn.dataset.tag = tag;
+    btn.addEventListener('click', () => toggleTag(tag));
+    tagRow.appendChild(btn);
+  });
+
+  function toggleTag(tag) {
+    if (EXCLUSIVE_TAGS.includes(tag)) {
+      // none / treasure / scrap each wipe out any other selection
+      selectedTags.clear();
+      selectedTags.add(tag);
+    } else {
+      // a directional/distance tag clears any exclusive selection but
+      // stacks freely with other directional/distance tags
+      EXCLUSIVE_TAGS.forEach((t) => selectedTags.delete(t));
+      if (selectedTags.has(tag)) {
+        selectedTags.delete(tag);
+      } else {
+        selectedTags.add(tag);
+      }
+    }
+    refreshTagButtons();
+  }
+
+  function refreshTagButtons() {
+    tagRow.querySelectorAll('.tag-btn').forEach((b) => {
+      b.classList.toggle('active', selectedTags.has(b.dataset.tag));
+    });
+  }
+
+  function resetTagSelection() {
+    selectedTags.clear();
+    refreshTagButtons();
+  }
+
+  // ---- Saved dig records ----
+  // If Firebase is configured, every dig is written to Firestore and pushed
+  // live to everyone else via onSnapshot. If not, falls back to this
+  // browser's localStorage only (matches prior single-device behavior).
+  const STORAGE_KEY = 'diamondDigRecords';
+  const digMap = new Map(); // "row,col" -> tags[]  (only the exact clicked/dug coordinate)
+
+  function loadLocalRecords() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      return raw ? JSON.parse(raw) : [];
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function saveDigRecord(row, col, tags) {
+    digMap.set(`${row},${col}`, tags);
+
+    if (db) {
+      const id = `${row}_${col}`;
+      fsSetDoc(fsDoc(db, 'digs', id), { row, col, tags }).catch((e) => {
+        console.error('Firestore write failed', e);
+      });
+    } else {
+      const records = loadLocalRecords();
+      records.push({ row, col, tags });
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(records)); } catch (e) {}
+    }
+  }
+
+  async function clearAllDigRecords() {
+    digMap.clear();
+    try { localStorage.removeItem(STORAGE_KEY); } catch (e) {}
+
+    if (db) {
+      const snapshot = await fsGetDocs(digsCollectionRef);
+      const docs = snapshot.docs;
+      const CHUNK = 450;
+      for (let i = 0; i < docs.length; i += CHUNK) {
+        const batch = fsWriteBatch(db);
+        docs.slice(i, i + CHUNK).forEach((d) => batch.delete(d.ref));
+        await batch.commit();
+      }
+    }
+  }
+
+  // Fills a region permanently (used both for a live Dig and for replaying
+  // saved records on page load) and draws the matching icon if tagged.
+  function applyDig(row, col, tags) {
+    const category = categoryOf(tags);
+    const fillColor = category === 'none' ? FILL_BLACK
+      : category === 'treasure' ? FILL_GREEN
+      : category === 'scrap' ? FILL_GREEN
+      : FILL_PURPLE;
+
+    const cells = getRegionCells(row, col);
+    cells.forEach(({ info, x, y }) => drawDiamondShape(info.ctx, x, y, fillColor));
+
+    if (category !== 'none') {
+      const { x: cx } = centerOfGlobal(row, col);
+      const tIdx = Math.floor(row / TILE_ROWS);
+      const info = tiles[tIdx];
+      const localY = (row - info.rowStart) * HH + HH;
+      if (category === 'treasure') drawX(info.ctx, cx, localY);
+      else if (category === 'scrap') drawO(info.ctx, cx, localY);
+      else drawFlag(info.ctx, cx, localY);
+    }
+  }
+
+  function commitDig() {
+    if (!pendingCenter) return;
+    const tags = selectedTags.has('none') ? [] : Array.from(selectedTags);
+    applyDig(pendingCenter.row, pendingCenter.col, tags);
+    saveDigRecord(pendingCenter.row, pendingCenter.col, tags);
+
+    highlightedTiles.forEach((idx) => {
+      const info = tiles[idx];
+      info.octx.clearRect(0, 0, info.overlay.width, info.overlay.height);
+    });
+    highlightedTiles.clear();
+    pendingCells = [];
+    pendingCenter = null;
+    resetTagSelection();
+    showActionPanel(false);
+  }
+
+  function cancelDig() {
+    clearHighlights();
+    resetTagSelection();
+    showActionPanel(false);
+  }
+
+  const actionPanel = document.getElementById('actionPanel');
+  function showActionPanel(visible) {
+    actionPanel.style.display = visible ? 'flex' : 'none';
+  }
+
+  const viewPanel = document.getElementById('viewPanel');
+  const viewPanelText = document.getElementById('viewPanelText');
+
+  function showViewPanel(tags) {
+    const category = categoryOf(tags);
+    let text;
+    if (category === 'none') text = 'Tagged: None (black)';
+    else if (category === 'treasure') text = 'Tagged: Treasure';
+    else if (category === 'scrap') text = 'Tagged: Scrap';
+    else text = 'Tagged: ' + tags.join(', ');
+    viewPanelText.textContent = text;
+    viewPanel.style.display = 'flex';
+  }
+
+  document.getElementById('viewCloseBtn').addEventListener('click', () => {
+    viewPanel.style.display = 'none';
+  });
+
+  document.getElementById('digBtn').addEventListener('click', commitDig);
+  document.getElementById('cancelBtn').addEventListener('click', cancelDig);
+
+  const tiles = [];
+
+  for (let t = 0; t < numTiles; t++) {
+    const rowStart = t * TILE_ROWS;
+    const rowEnd = Math.min(ROWS, rowStart + TILE_ROWS);
+    const N = rowEnd - rowStart;
+    const tileHeight = (N + 1) * HH;
+    const tileTop = rowStart * HH;
+
+    const bg = document.createElement('canvas');
+    const overlay = document.createElement('canvas');
+    bg.width = overlay.width = canvasWidth;
+    bg.height = overlay.height = tileHeight;
+    bg.style.top = overlay.style.top = tileTop + 'px';
+    overlay.className = 'tile-overlay';
+
+    content.appendChild(bg);
+    content.appendChild(overlay);
+
+    const ctx = bg.getContext('2d');
+    const octx = overlay.getContext('2d');
+
+    // local (i) = row within tile; global row = rowStart + i
+    function centerOfLocal(i, col) {
+      const rowShift = (i % 2 === 1) ? HW : 0;
+      const x = col * (2 * HW) + HW + rowShift;
+      const y = i * HH + HH;
+      return { x, y };
+    }
+
+    const paths = colors.map(() => new Path2D());
+    for (let i = 0; i < N; i++) {
+      const globalRow = rowStart + i;
+      for (let col = 0; col < COLS; col++) {
+        if (!shouldDraw(globalRow, col)) continue;
+        const { x, y } = centerOfLocal(i, col);
+        const colorIndex = globalRow % colors.length;
+        const p = paths[colorIndex];
+        p.moveTo(x, y - HH);
+        p.lineTo(x + HW, y);
+        p.lineTo(x, y + HH);
+        p.lineTo(x - HW, y);
+        p.closePath();
+      }
+    }
+
+    function drawBasePattern() {
+      ctx.clearRect(0, 0, bg.width, bg.height);
+      paths.forEach((p, i2) => {
+        ctx.fillStyle = colors[i2];
+        ctx.fill(p);
+      });
+    }
+    drawBasePattern();
+
+    function hitTest(px, py) {
+      const iGuess = Math.round((py - HH) / HH);
+      for (let i = Math.max(0, iGuess - 1); i <= Math.min(N - 1, iGuess + 1); i++) {
+        const globalRow = rowStart + i;
+        const rowShift = (i % 2 === 1) ? HW : 0;
+        const colGuess = Math.round((px - HW - rowShift) / (2 * HW));
+        for (let col = Math.max(0, colGuess - 1); col <= Math.min(COLS - 1, colGuess + 1); col++) {
+          if (!shouldDraw(globalRow, col)) continue;
+          const { x, y } = centerOfLocal(i, col);
+          if (isInsideDiamond(px, py, x, y)) {
+            return { row: globalRow, col, x, y };
+          }
+        }
+      }
+      return null;
+    }
+
+    overlay.addEventListener('click', (e) => {
+      const rect = overlay.getBoundingClientRect();
+      const scaleX = overlay.width / rect.width;
+      const scaleY = overlay.height / rect.height;
+      const px = (e.clientX - rect.left) * scaleX;
+      const py = (e.clientY - rect.top) * scaleY;
+
+      const hit = hitTest(px, py);
+      if (hit) {
+        const colNum = COL_OFFSET + hit.col * 2;
+        const rowNum = hit.row + ROW_OFFSET;
+        coordsLabel.textContent = `Clicked: (${colNum}, ${rowNum})`;
+
+        const key = `${hit.row},${hit.col}`;
+        if (digMap.has(key)) {
+          showActionPanel(false);
+          showViewPanel(digMap.get(key));
+        } else {
+          viewPanel.style.display = 'none';
+          highlightRegion(hit.row, hit.col);
+        }
+      }
+    });
+
+    tiles.push({ bg, overlay, octx, ctx, rowStart, N, drawBasePattern });
+  }
+
+  // ---- Load + live-sync dig records ----
+  if (db) {
+    fsOnSnapshot(digsCollectionRef, (snapshot) => {
+      syncStatus.textContent = '🔥 Live — shared with everyone';
+      const changes = snapshot.docChanges();
+      const hasRemoval = changes.some((c) => c.type === 'removed');
+
+      if (hasRemoval) {
+        // A reset happened (locally or from someone else) — rebuild from scratch
+        tiles.forEach((info) => {
+          info.drawBasePattern();
+          info.octx.clearRect(0, 0, info.overlay.width, info.overlay.height);
+        });
+        digMap.clear();
+        snapshot.docs.forEach((d) => {
+          const data = d.data();
+          applyDig(data.row, data.col, data.tags);
+          digMap.set(`${data.row},${data.col}`, data.tags);
+        });
+      } else {
+        changes.forEach((c) => {
+          if (c.type === 'added' || c.type === 'modified') {
+            const data = c.doc.data();
+            applyDig(data.row, data.col, data.tags);
+            digMap.set(`${data.row},${data.col}`, data.tags);
+          }
+        });
+      }
+    }, (err) => {
+      console.error('Firestore listener error', err);
+      syncStatus.textContent = '📴 Local only (sync error)';
+    });
+  } else {
+    // Local-only fallback
+    loadLocalRecords().forEach(({ row, col, tags }) => {
+      applyDig(row, col, tags);
+      digMap.set(`${row},${col}`, tags);
+    });
+  }
+
+  // ---- Reset board ----
+  const resetConfirmPanel = document.getElementById('resetConfirmPanel');
+
+  document.getElementById('resetBoard').addEventListener('click', () => {
+    showActionPanel(false);
+    viewPanel.style.display = 'none';
+    resetConfirmPanel.style.display = 'flex';
+  });
+
+  document.getElementById('resetConfirmNo').addEventListener('click', () => {
+    resetConfirmPanel.style.display = 'none';
+  });
+
+  document.getElementById('resetConfirmYes').addEventListener('click', async () => {
+    resetConfirmPanel.style.display = 'none';
+
+    // Local redraw happens immediately for instant feedback; Firestore
+    // deletion (if configured) runs in the background and the listener
+    // above will confirm the reset for everyone once it completes.
+    tiles.forEach((info) => {
+      info.drawBasePattern();
+      info.octx.clearRect(0, 0, info.overlay.width, info.overlay.height);
+    });
+    highlightedTiles.clear();
+    pendingCells = [];
+    pendingCenter = null;
+    resetTagSelection();
+    showActionPanel(false);
+    viewPanel.style.display = 'none';
+    coordsLabel.textContent = 'Clicked: —';
+
+    await clearAllDigRecords();
+  });
+
+  // ---- Zoom (custom, replaces native pinch-zoom so the toolbar stays put) ----
+  let zoom = 1;
+  const ZOOM_MIN = 0.5;
+  const ZOOM_MAX = 4;
+  const ZOOM_STEP = 0.5;
+
+  function applyZoom() {
+    content.style.transform = `scale(${zoom})`;
+    sizer.style.width = (canvasWidth * zoom + 6) + 'px';
+    sizer.style.height = (fullHeight * zoom + 6) + 'px';
+  }
+  applyZoom();
+
+  document.getElementById('zoomIn').addEventListener('click', () => {
+    zoom = Math.min(ZOOM_MAX, zoom + ZOOM_STEP);
+    applyZoom();
+  });
+  document.getElementById('zoomOut').addEventListener('click', () => {
+    zoom = Math.max(ZOOM_MIN, zoom - ZOOM_STEP);
+    applyZoom();
+  });
+  document.getElementById('zoomReset').addEventListener('click', () => {
+    zoom = 1;
+    applyZoom();
+  });
+
+  // Keep the scrollable board area below the toolbar, even if its height changes
+  const toolbar = document.querySelector('.toolbar');
+
+  function syncToolbarOffset() {
+    const h = toolbar.offsetHeight;
+    scrollWrap.style.marginTop = h + 'px';
+    scrollWrap.style.height = `calc(100vh - ${h}px)`;
+  }
+  syncToolbarOffset();
+  window.addEventListener('resize', syncToolbarOffset);
+  new ResizeObserver(syncToolbarOffset).observe(toolbar);
+</script>
+
+</body>
+</html>
