@@ -166,6 +166,16 @@
     cursor: pointer;
   }
 
+  .goto-input {
+    width: 70px;
+    padding: 5px 8px;
+    border-radius: 4px;
+    border: 1px solid #3a3f5a;
+    background: #0f3460;
+    color: #eee;
+    font-size: 14px;
+  }
+
   .scroll-wrap {
     overflow: auto;
     width: 100vw;
@@ -215,6 +225,13 @@
     </div>
     <button id="resetBoard" class="reset-btn">Reset board</button>
     <span id="syncStatus" style="font-size:12px; opacity:0.7;">Local only</span>
+  </div>
+  <div class="toolbar-row" id="gotoRow">
+    <span>Go to:</span>
+    <input type="number" id="gotoCol" placeholder="column" class="goto-input">
+    <input type="number" id="gotoRowInput" placeholder="row" class="goto-input">
+    <button id="gotoBtn" class="dig-btn">Go</button>
+    <span id="gotoError" style="font-size:12px; color:#ff8080;"></span>
   </div>
   <div class="action-panel" id="actionPanel">
     <div class="action-panel-row">
@@ -292,7 +309,9 @@
   const HW = 8;
   const HH = 8;
 
-  // Coordinate offset: top-left diamond should read as (3,3); columns count by 2s
+  // Coordinate offset: first blue diamond is (3,3), first pink diamond is
+  // (4,4). Row numbers always increase by 1. Column numbers depend on row
+  // parity — see colNumFor() below.
   const COL_OFFSET = 3;
   const ROW_OFFSET = 3;
 
@@ -645,6 +664,35 @@
   document.getElementById('digBtn').addEventListener('click', commitDig);
   document.getElementById('cancelBtn').addEventListener('click', cancelDig);
 
+  // Shared by both clicking a diamond and using the "Go to" coordinate box —
+  // exactly the same behavior either way: show existing tags if already dug,
+  // otherwise start the dig-region preview.
+  //
+  // Column numbering depends on row parity, matching the real geometry: pink
+  // rows sit half a diamond-width to the right of blue rows, so their column
+  // numbers are shifted by 1. Blue (even rows) → odd columns starting at 3.
+  // Pink (odd rows) → even columns starting at 4. First blue diamond is
+  // (3,3); first pink diamond is (4,4).
+  function colNumFor(row, col) {
+    const parityShift = (row % 2 === 1) ? 1 : 0;
+    return COL_OFFSET + col * 2 + parityShift;
+  }
+
+  function selectDiamond(row, col) {
+    const colNum = colNumFor(row, col);
+    const rowNum = row + ROW_OFFSET;
+    coordsLabel.textContent = `Clicked: (${colNum}, ${rowNum})`;
+
+    const key = `${row},${col}`;
+    if (digMap.has(key)) {
+      showActionPanel(false);
+      showViewPanel(digMap.get(key));
+    } else {
+      viewPanel.style.display = 'none';
+      highlightRegion(row, col);
+    }
+  }
+
   const tiles = [];
 
   for (let t = 0; t < numTiles; t++) {
@@ -736,18 +784,7 @@
 
       const hit = hitTest(px, py);
       if (hit) {
-        const colNum = COL_OFFSET + hit.col * 2;
-        const rowNum = hit.row + ROW_OFFSET;
-        coordsLabel.textContent = `Clicked: (${colNum}, ${rowNum})`;
-
-        const key = `${hit.row},${hit.col}`;
-        if (digMap.has(key)) {
-          showActionPanel(false);
-          showViewPanel(digMap.get(key));
-        } else {
-          viewPanel.style.display = 'none';
-          highlightRegion(hit.row, hit.col);
-        }
+        selectDiamond(hit.row, hit.col);
       }
     });
 
@@ -852,6 +889,68 @@
   document.getElementById('zoomReset').addEventListener('click', () => {
     zoom = 1;
     applyZoom();
+  });
+
+  // ---- Manual "Go to coordinate" ----
+  const gotoColInput = document.getElementById('gotoCol');
+  const gotoRowInputEl = document.getElementById('gotoRowInput');
+  const gotoError = document.getElementById('gotoError');
+
+  function scrollToDiamond(row, col) {
+    const { x, y } = centerOfGlobal(row, col);
+    const PADDING = 60; // matches .board-padding
+    const targetLeft = PADDING + x * zoom - scrollWrap.clientWidth / 2;
+    const targetTop = PADDING + y * zoom - scrollWrap.clientHeight / 2;
+    scrollWrap.scrollTo({
+      left: Math.max(0, targetLeft),
+      top: Math.max(0, targetTop),
+      behavior: 'smooth'
+    });
+  }
+
+  function goToCoordinate() {
+    gotoError.textContent = '';
+    const colNum = parseInt(gotoColInput.value, 10);
+    const rowNum = parseInt(gotoRowInputEl.value, 10);
+
+    if (isNaN(colNum) || isNaN(rowNum)) {
+      gotoError.textContent = 'Enter both numbers';
+      return;
+    }
+
+    const row = rowNum - ROW_OFFSET;
+    if (row < 0 || row > ROWS - 1) {
+      gotoError.textContent = 'Row out of range';
+      return;
+    }
+
+    // Column numbering is row-parity-dependent (see colNumFor)
+    const parityShift = (row % 2 === 1) ? 1 : 0;
+    const rawCol = colNum - COL_OFFSET - parityShift;
+    if (rawCol < 0 || rawCol % 2 !== 0) {
+      gotoError.textContent = row % 2 === 1 ? 'For this row, column must be 4, 6, 8...' : 'For this row, column must be 3, 5, 7...';
+      return;
+    }
+
+    const col = rawCol / 2;
+    if (col < 0 || col > COLS - 1) {
+      gotoError.textContent = 'Column out of range';
+      return;
+    }
+    if (!shouldDraw(row, col)) {
+      gotoError.textContent = 'No diamond there';
+      return;
+    }
+
+    selectDiamond(row, col);
+    scrollToDiamond(row, col);
+  }
+
+  document.getElementById('gotoBtn').addEventListener('click', goToCoordinate);
+  [gotoColInput, gotoRowInputEl].forEach((el) => {
+    el.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') goToCoordinate();
+    });
   });
 
   // Keep the scrollable board area below the toolbar, even if its height changes
