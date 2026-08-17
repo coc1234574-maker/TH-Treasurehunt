@@ -128,11 +128,16 @@
     color: #fff;
   }
 
-  .tag-btn.tag-treasure.active,
-  .tag-btn.tag-scrap.active {
+  .tag-btn.tag-treasure.active {
     background: #4caf50;
     border-color: #4caf50;
     color: #fff;
+  }
+
+  .tag-btn.tag-scrap.active {
+    background: #ffb74d;
+    border-color: #ffb74d;
+    color: #1a1a2e;
   }
 
   .view-panel {
@@ -518,7 +523,8 @@
 
   const FILL_BLACK = '#111111';
   const FILL_PURPLE = '#b388ff';
-  const FILL_GREEN = '#4caf50';
+  const FILL_TREASURE = '#4caf50';
+  const FILL_SCRAP = '#ffb74d';
 
   // Which visual category a set of tags maps to
   function categoryOf(tags) {
@@ -527,6 +533,11 @@
     if (tags.includes('scrap')) return 'scrap';
     return 'directional';
   }
+
+  // Bottom-to-top render priority when digs overlap: none < directions <
+  // scrap < treasure. Higher-priority categories always show through,
+  // regardless of which order the digs actually happened in.
+  const CATEGORY_PRIORITY = { none: 0, directional: 1, scrap: 2, treasure: 3 };
 
   // Returns every drawable diamond within RADIUS_PX of (centerRow, centerCol),
   // each resolved to its owning tile + local pixel position for direct drawing.
@@ -669,8 +680,8 @@
   function applyDig(row, col, tags) {
     const category = categoryOf(tags);
     const fillColor = category === 'none' ? FILL_BLACK
-      : category === 'treasure' ? FILL_GREEN
-      : category === 'scrap' ? FILL_GREEN
+      : category === 'treasure' ? FILL_TREASURE
+      : category === 'scrap' ? FILL_SCRAP
       : FILL_PURPLE;
 
     const cells = getRegionCells(row, col);
@@ -687,11 +698,30 @@
     }
   }
 
+  // Redraws the entire board from scratch: base pattern + hints, then every
+  // saved dig applied in priority order (none first, treasure last) so that
+  // wherever dig regions overlap, the higher-priority category always wins,
+  // regardless of which order the digs actually happened in.
+  function rebuildBoard() {
+    tiles.forEach((info) => {
+      info.drawBasePattern();
+      info.octx.clearRect(0, 0, info.overlay.width, info.overlay.height);
+    });
+
+    const records = [];
+    digMap.forEach((tags, key) => {
+      const [row, col] = key.split(',').map(Number);
+      records.push({ row, col, tags, priority: CATEGORY_PRIORITY[categoryOf(tags)] });
+    });
+    records.sort((a, b) => a.priority - b.priority);
+    records.forEach((r) => applyDig(r.row, r.col, r.tags));
+  }
+
   function commitDig() {
     if (!pendingCenter) return;
     const tags = selectedTags.has('none') ? [] : Array.from(selectedTags);
-    applyDig(pendingCenter.row, pendingCenter.col, tags);
     saveDigRecord(pendingCenter.row, pendingCenter.col, tags);
+    rebuildBoard();
     refreshTagTables();
 
     highlightedTiles.forEach((idx) => {
@@ -938,30 +968,12 @@
   if (db) {
     fsOnSnapshot(digsCollectionRef, (snapshot) => {
       syncStatus.textContent = '🔥 Live — shared with everyone';
-      const changes = snapshot.docChanges();
-      const hasRemoval = changes.some((c) => c.type === 'removed');
-
-      if (hasRemoval) {
-        // A reset happened (locally or from someone else) — rebuild from scratch
-        tiles.forEach((info) => {
-          info.drawBasePattern();
-          info.octx.clearRect(0, 0, info.overlay.width, info.overlay.height);
-        });
-        digMap.clear();
-        snapshot.docs.forEach((d) => {
-          const data = d.data();
-          applyDig(data.row, data.col, data.tags);
-          digMap.set(`${data.row},${data.col}`, data.tags);
-        });
-      } else {
-        changes.forEach((c) => {
-          if (c.type === 'added' || c.type === 'modified') {
-            const data = c.doc.data();
-            applyDig(data.row, data.col, data.tags);
-            digMap.set(`${data.row},${data.col}`, data.tags);
-          }
-        });
-      }
+      digMap.clear();
+      snapshot.docs.forEach((d) => {
+        const data = d.data();
+        digMap.set(`${data.row},${data.col}`, data.tags);
+      });
+      rebuildBoard();
       refreshTagTables();
     }, (err) => {
       console.error('Firestore listener error', err);
@@ -970,9 +982,9 @@
   } else {
     // Local-only fallback
     loadLocalRecords().forEach(({ row, col, tags }) => {
-      applyDig(row, col, tags);
       digMap.set(`${row},${col}`, tags);
     });
+    rebuildBoard();
     refreshTagTables();
   }
 
@@ -989,16 +1001,14 @@
     resetConfirmPanel.style.display = 'none';
   });
 
-  document.getElementById('resetConfirmYes').addEventListener('click', async () => {
+  document.getElementById('resetConfirmYes').addEventListener('click', () => {
     resetConfirmPanel.style.display = 'none';
 
-    // Local redraw happens immediately for instant feedback; Firestore
-    // deletion (if configured) runs in the background and the listener
-    // above will confirm the reset for everyone once it completes.
-    tiles.forEach((info) => {
-      info.drawBasePattern();
-      info.octx.clearRect(0, 0, info.overlay.width, info.overlay.height);
-    });
+    // clearAllDigRecords() clears digMap synchronously before it does any
+    // awaiting, so the local rebuild is instant — the Firestore deletion
+    // (if configured) completes in the background.
+    clearAllDigRecords().catch((e) => console.error('Reset sync failed', e));
+    rebuildBoard();
     highlightedTiles.clear();
     pendingCells = [];
     pendingCenter = null;
@@ -1006,8 +1016,6 @@
     showActionPanel(false);
     viewPanel.style.display = 'none';
     coordsLabel.textContent = 'Clicked: —';
-
-    await clearAllDigRecords();
     refreshTagTables();
   });
 
