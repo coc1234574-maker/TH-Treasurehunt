@@ -178,8 +178,63 @@
 
   .scroll-wrap {
     overflow: auto;
-    width: 100vw;
+    flex: 1;
     touch-action: pan-x pan-y;
+  }
+
+  .main-layout {
+    display: flex;
+    width: 100vw;
+  }
+
+  .sidebar {
+    width: 240px;
+    flex-shrink: 0;
+    overflow-y: auto;
+    background: #16213e;
+    border-left: 1px solid #1f3a63;
+    padding: 12px;
+    box-sizing: border-box;
+  }
+
+  .sidebar h3 {
+    margin: 16px 0 6px;
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    opacity: 0.8;
+  }
+
+  .sidebar h3:first-child {
+    margin-top: 0;
+  }
+
+  .sidebar table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+  }
+
+  .sidebar td {
+    padding: 4px 6px;
+    border-bottom: 1px solid #1f3a63;
+    cursor: pointer;
+  }
+
+  .sidebar tr:hover td {
+    background: #0f3460;
+  }
+
+  @media (max-width: 700px) {
+    .main-layout {
+      flex-direction: column;
+    }
+    .sidebar {
+      width: 100%;
+      max-height: 200px;
+      border-left: none;
+      border-top: 1px solid #1f3a63;
+    }
   }
 
   .board-padding {
@@ -252,11 +307,24 @@
   </div>
 </div>
 
-<div class="scroll-wrap" id="scrollWrap">
-  <div class="board-padding">
-    <div class="zoom-sizer" id="sizer">
-      <div class="content" id="content"></div>
+<div class="main-layout" id="mainLayout">
+  <div class="scroll-wrap" id="scrollWrap">
+    <div class="board-padding">
+      <div class="zoom-sizer" id="sizer">
+        <div class="content" id="content"></div>
+      </div>
     </div>
+  </div>
+
+  <div class="sidebar" id="sidebar">
+    <h3>Treasure</h3>
+    <table><tbody id="treasureTableBody"></tbody></table>
+
+    <h3>Scrap</h3>
+    <table><tbody id="scrapTableBody"></tbody></table>
+
+    <h3>Directions</h3>
+    <table><tbody id="directionsTableBody"></tbody></table>
   </div>
 </div>
 
@@ -333,6 +401,7 @@
   const content = document.getElementById('content');
   const sizer = document.getElementById('sizer');
   const scrollWrap = document.getElementById('scrollWrap');
+  const mainLayout = document.getElementById('mainLayout');
   const coordsLabel = document.getElementById('coords');
 
   content.style.width = canvasWidth + 'px';
@@ -620,6 +689,7 @@
     const tags = selectedTags.has('none') ? [] : Array.from(selectedTags);
     applyDig(pendingCenter.row, pendingCenter.col, tags);
     saveDigRecord(pendingCenter.row, pendingCenter.col, tags);
+    refreshTagTables();
 
     highlightedTiles.forEach((idx) => {
       const info = tiles[idx];
@@ -691,6 +761,64 @@
       viewPanel.style.display = 'none';
       highlightRegion(row, col);
     }
+  }
+
+  // ---- Sidebar tag tables (Treasure / Scrap / Directions) ----
+  function fillTable(tbodyId, rows) {
+    const tbody = document.getElementById(tbodyId);
+    tbody.innerHTML = '';
+    if (rows.length === 0) {
+      const tr = document.createElement('tr');
+      const td = document.createElement('td');
+      td.textContent = '—';
+      td.colSpan = 2;
+      tr.appendChild(td);
+      tbody.appendChild(tr);
+      return;
+    }
+    rows.forEach(({ label, detail, row, col }) => {
+      const tr = document.createElement('tr');
+      const tdCoord = document.createElement('td');
+      tdCoord.textContent = label;
+      tr.appendChild(tdCoord);
+      if (detail !== undefined) {
+        const tdDetail = document.createElement('td');
+        tdDetail.textContent = detail;
+        tr.appendChild(tdDetail);
+      }
+      tr.addEventListener('click', () => {
+        selectDiamond(row, col);
+        scrollToDiamond(row, col);
+      });
+      tbody.appendChild(tr);
+    });
+  }
+
+  function refreshTagTables() {
+    const treasureRows = [];
+    const scrapRows = [];
+    const dirRows = [];
+
+    digMap.forEach((tags, key) => {
+      const [row, col] = key.split(',').map(Number);
+      const category = categoryOf(tags);
+      const colNum = colNumFor(row, col);
+      const rowNum = row + ROW_OFFSET;
+      const label = `(${colNum}, ${rowNum})`;
+
+      if (category === 'treasure') treasureRows.push({ label, row, col, sortKey: rowNum * 100000 + colNum });
+      else if (category === 'scrap') scrapRows.push({ label, row, col, sortKey: rowNum * 100000 + colNum });
+      else if (category === 'directional') dirRows.push({ label, detail: tags.join(', '), row, col, sortKey: rowNum * 100000 + colNum });
+    });
+
+    const bySort = (a, b) => a.sortKey - b.sortKey;
+    treasureRows.sort(bySort);
+    scrapRows.sort(bySort);
+    dirRows.sort(bySort);
+
+    fillTable('treasureTableBody', treasureRows);
+    fillTable('scrapTableBody', scrapRows);
+    fillTable('directionsTableBody', dirRows);
   }
 
   const tiles = [];
@@ -819,6 +947,7 @@
           }
         });
       }
+      refreshTagTables();
     }, (err) => {
       console.error('Firestore listener error', err);
       syncStatus.textContent = '📴 Local only (sync error)';
@@ -829,6 +958,7 @@
       applyDig(row, col, tags);
       digMap.set(`${row},${col}`, tags);
     });
+    refreshTagTables();
   }
 
   // ---- Reset board ----
@@ -863,6 +993,7 @@
     coordsLabel.textContent = 'Clicked: —';
 
     await clearAllDigRecords();
+    refreshTagTables();
   });
 
   // ---- Zoom (custom, replaces native pinch-zoom so the toolbar stays put) ----
@@ -958,8 +1089,8 @@
 
   function syncToolbarOffset() {
     const h = toolbar.offsetHeight;
-    scrollWrap.style.marginTop = h + 'px';
-    scrollWrap.style.height = `calc(100vh - ${h}px)`;
+    mainLayout.style.marginTop = h + 'px';
+    mainLayout.style.height = `calc(100vh - ${h}px)`;
   }
   syncToolbarOffset();
   window.addEventListener('resize', syncToolbarOffset);
