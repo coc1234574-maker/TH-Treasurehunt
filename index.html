@@ -303,6 +303,8 @@
   </div>
   <div class="view-panel" id="viewPanel">
     <span id="viewPanelText">Already tagged.</span>
+    <button id="viewEditBtn">Edit</button>
+    <button id="viewRemoveBtn" class="reset-btn">Remove</button>
     <button id="viewCloseBtn">Close</button>
   </div>
   <div class="view-panel" id="resetConfirmPanel">
@@ -356,20 +358,20 @@
   const USE_FIREBASE = firebaseConfig.apiKey !== 'YOUR_API_KEY';
   const syncStatus = document.getElementById('syncStatus');
 
-  let db, digsCollectionRef, fsDoc, fsSetDoc, fsGetDocs, fsOnSnapshot, fsWriteBatch;
+  let db, digsCollectionRef, fsDoc, fsSetDoc, fsGetDocs, fsOnSnapshot, fsWriteBatch, fsDeleteDoc;
 
   if (USE_FIREBASE) {
     try {
       const { initializeApp } = await import('https://www.gstatic.com/firebasejs/12.17.1/firebase-app.js');
       const {
-        getFirestore, collection, doc, setDoc, getDocs, onSnapshot, writeBatch
+        getFirestore, collection, doc, setDoc, getDocs, onSnapshot, writeBatch, deleteDoc
       } = await import('https://www.gstatic.com/firebasejs/12.17.1/firebase-firestore.js');
 
       const app = initializeApp(firebaseConfig);
       db = getFirestore(app);
       digsCollectionRef = collection(db, 'digs');
       fsDoc = doc; fsSetDoc = setDoc; fsGetDocs = getDocs;
-      fsOnSnapshot = onSnapshot; fsWriteBatch = writeBatch;
+      fsOnSnapshot = onSnapshot; fsWriteBatch = writeBatch; fsDeleteDoc = deleteDoc;
       syncStatus.textContent = '🔥 Connecting…';
     } catch (e) {
       console.error('Firebase failed to load, falling back to local-only', e);
@@ -653,8 +655,22 @@
         console.error('Firestore write failed', e);
       });
     } else {
-      const records = loadLocalRecords();
+      const records = loadLocalRecords().filter((r) => !(r.row === row && r.col === col));
       records.push({ row, col, tags });
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(records)); } catch (e) {}
+    }
+  }
+
+  function removeDigRecord(row, col) {
+    digMap.delete(`${row},${col}`);
+
+    if (db) {
+      const id = `${row}_${col}`;
+      fsDeleteDoc(fsDoc(db, 'digs', id)).catch((e) => {
+        console.error('Firestore delete failed', e);
+      });
+    } else {
+      const records = loadLocalRecords().filter((r) => !(r.row === row && r.col === col));
       try { localStorage.setItem(STORAGE_KEY, JSON.stringify(records)); } catch (e) {}
     }
   }
@@ -748,8 +764,10 @@
 
   const viewPanel = document.getElementById('viewPanel');
   const viewPanelText = document.getElementById('viewPanelText');
+  let viewingCoord = null; // { row, col } for whichever tagged coordinate is currently shown
 
-  function showViewPanel(tags) {
+  function showViewPanel(row, col, tags) {
+    viewingCoord = { row, col };
     const category = categoryOf(tags);
     let text;
     if (category === 'none') text = 'Tagged: None (black)';
@@ -762,9 +780,38 @@
 
   document.getElementById('viewCloseBtn').addEventListener('click', () => {
     viewPanel.style.display = 'none';
+    viewingCoord = null;
   });
 
-  document.getElementById('digBtn').addEventListener('click', commitDig);
+  document.getElementById('viewEditBtn').addEventListener('click', () => {
+    if (!viewingCoord) return;
+    const { row, col } = viewingCoord;
+    const existingTags = digMap.get(`${row},${col}`) || [];
+    viewPanel.style.display = 'none';
+    viewingCoord = null;
+
+    highlightRegion(row, col); // sets up preview + resets tag selection + shows action panel
+    if (existingTags.length === 0) {
+      selectedTags.add('none');
+    } else {
+      existingTags.forEach((t) => selectedTags.add(t));
+    }
+    refreshTagButtons();
+    digBtn.textContent = 'Update';
+  });
+
+  document.getElementById('viewRemoveBtn').addEventListener('click', () => {
+    if (!viewingCoord) return;
+    const { row, col } = viewingCoord;
+    removeDigRecord(row, col);
+    rebuildBoard();
+    refreshTagTables();
+    viewPanel.style.display = 'none';
+    viewingCoord = null;
+  });
+
+  const digBtn = document.getElementById('digBtn');
+  digBtn.addEventListener('click', commitDig);
   document.getElementById('cancelBtn').addEventListener('click', cancelDig);
 
   // Shared by both clicking a diamond and using the "Go to" coordinate box —
@@ -789,10 +836,11 @@
     const key = `${row},${col}`;
     if (digMap.has(key)) {
       showActionPanel(false);
-      showViewPanel(digMap.get(key));
+      showViewPanel(row, col, digMap.get(key));
     } else {
       viewPanel.style.display = 'none';
       highlightRegion(row, col);
+      digBtn.textContent = 'Dig';
     }
   }
 
